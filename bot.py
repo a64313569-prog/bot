@@ -2,6 +2,8 @@ import telebot
 from telebot import types
 import random
 import google.generativeai as genai
+from flask import Flask
+from threading import Thread
 import os
 
 # --- НАСТРОЙКИ ---
@@ -14,18 +16,29 @@ ai_model = genai.GenerativeModel('gemini-1.5-flash')
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# Промпт для характера ИИ
-SYSTEM_PROMPT = (
-    "Ты — харизматичный ИИ-помощник. Твой стиль: уверенный, немного загадочный, "
-    "но дружелюбный. Используй эмодзи. Отвечай кратко и по делу."
-)
+# --- МИНИ-СЕРВЕР ДЛЯ RENDER (ЧТОБЫ БЫЛО БЕСПЛАТНО) ---
+app = Flask('')
 
-# --- ТЕКСТОВЫЕ БЛОКИ ---
-TEXT_PSYCHOLOGY = "<b>🎭 ОСНОВЫ ПСИХОЛОГИИ</b>\n1. Эффект ореола.\n2. EQ.\n3. Осознанность."
-TEXT_MANIPULATION = "<b>⭐️ ИСКУССТВО ВЛИЯНИЯ</b>\n• Газлайтинг.\n• Нога в дверях.\n• Защита."
-TEXT_RELATIONSHIPS = "<b>❤️ ПСИХОЛОГИЯ ОТНОШЕНИЙ</b>\n1. Типы привязанности.\n2. Границы.\n3. Правило 5/1."
+@app.route('/')
+def home():
+    return "Бот запущен и работает!"
 
-# --- ЛОГИКА ТЕСТА IQ ---
+def run():
+    # Render сам назначит порт, если его нет — используем 8080
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host='0.0.0.0', port=port)
+
+def keep_alive():
+    t = Thread(target=run)
+    t.start()
+
+# --- КОНТЕНТ ---
+SYSTEM_PROMPT = "Ты — харизматичный ИИ-помощник, созданный Object 14-A. Твой стиль: уверенный, лаконичный, используй эмодзи."
+
+TEXT_PSYCHOLOGY = "<b>🎭 ПСИХОЛОГИЯ</b>\n1. Эффект ореола: внешность обманчива.\n2. EQ: управляй эмоциями.\n3. Осознанность: живи моментом."
+TEXT_MANIPULATION = "<b>⭐️ МАНИПУЛЯЦИИ</b>\n• Газлайтинг: «тебе показалось».\n• Нога в дверях: начни с малого.\n• Защита: личные границы."
+TEXT_RELATIONSHIPS = "<b>❤️ ОТНОШЕНИЯ</b>\n1. Типы привязанности.\n2. Границы — это база.\n3. Правило 5/1."
+
 BASE_QUESTIONS = [
     {"q": "У отца Мэри есть 5 дочерей: Нана, Нене, Нини, Ноно. Как зовут пятую?", "a": "Мэри"},
     {"q": "Что становится больше, если его поставить вверх ногами?", "a": "6"},
@@ -36,6 +49,7 @@ BASE_QUESTIONS = [
 
 user_test_data = {}
 
+# --- ЛОГИКА ТЕСТА ---
 def run_iq_test(message, q_index=0, score=0):
     chat_id = message.chat.id
     if q_index == 0:
@@ -43,12 +57,12 @@ def run_iq_test(message, q_index=0, score=0):
         random.shuffle(q_list)
         user_test_data[chat_id] = q_list
     
-    current_qs = user_test_data.get(chat_id, BASE_QUESTIONS)
+    current_qs = user_test_data.get(chat_id)
     if q_index < len(current_qs):
         msg = bot.send_message(chat_id, f"<b>Вопрос №{q_index + 1}:</b>\n\n{current_qs[q_index]['q']}", parse_mode='HTML', reply_markup=types.ReplyKeyboardRemove())
         bot.register_next_step_handler(msg, check_iq_answer, q_index, score)
     else:
-        bot.send_message(chat_id, f"<b>Тест завершен!</b>\nПравильно: {score} из {len(current_qs)}.", parse_mode='HTML')
+        bot.send_message(chat_id, f"<b>Тест завершен!</b>\nРезультат: {score} из {len(current_qs)}.")
         start(message)
 
 def check_iq_answer(message, q_index, score):
@@ -58,25 +72,22 @@ def check_iq_answer(message, q_index, score):
         score += 1
     run_iq_test(message, q_index + 1, score)
 
-# --- ОБРАБОТКА КОМАНД ---
-
+# --- ОБРАБОТКА ---
 @bot.message_handler(commands=['start'])
 def start(message):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     markup.add('Психология 🎭', 'Манипуляции ⭐️', 'Отношения ❤️', 'Тест IQ 🧠', 'Главное меню 🏠')
-    bot.send_message(message.chat.id, f"Привет, {message.from_user.first_name}! Я твой ИИ-проводник.", reply_markup=markup)
+    bot.send_message(message.chat.id, f"Привет, {message.from_user.first_name}! О чем поболтаем?", reply_markup=markup)
 
 @bot.message_handler(content_types=['text'])
 def handle_messages(message):
     text = message.text.lower()
     
-    # 1. Проверка на создателя (ТВОЙ ЗАПРОС)
-    if "кто тебя создал" in text or "кто твой создатель" in text or "кто твой папа" in text:
-        # Можешь вписать сюда свою ссылку на канал или юзернейм
-        bot.reply_to(message, "Меня создала легенда по имени **@Beelzebub_8** (Профессор). 😎")
+    # ОТВЕТ ПРО СОЗДАТЕЛЯ
+    if "кто тебя создал" in text or "кто твой создатель" in text:
+        bot.reply_to(message, "Меня создала легенда по имени **Object 14-A** (Профессор). 😎")
         return
 
-    # 2. Кнопки
     if text == 'психология 🎭':
         bot.send_message(message.chat.id, TEXT_PSYCHOLOGY, parse_mode='HTML')
     elif text == 'манипуляции ⭐️':
@@ -87,17 +98,16 @@ def handle_messages(message):
         run_iq_test(message)
     elif text == 'главное меню 🏠':
         start(message)
-    
-    # 3. Интеллектуальный ответ ИИ
     else:
-        bot.send_chat_action(message.chat.id, 'typing')
+        # РАБОТА ИИ
         try:
-            full_prompt = f"{SYSTEM_PROMPT}\nПользователь: {message.text}\nТвой ответ:"
-            response = ai_model.generate_content(full_prompt)
+            prompt = f"{SYSTEM_PROMPT}\nПользователь: {message.text}"
+            response = ai_model.generate_content(prompt)
             bot.reply_to(message, response.text)
-        except Exception:
-            bot.send_message(message.chat.id, "Используй меню ниже! 👇")
+        except:
+            bot.send_message(message.chat.id, "Я задумался... Попробуй меню!")
 
 if __name__ == '__main__':
-    print("Бот запущен...")
+    keep_alive() # Запуск веб-сервера
+    print("Бот запущен!")
     bot.polling(none_stop=True)
